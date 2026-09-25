@@ -3,9 +3,12 @@ name: Update file list
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - 'files/**'
+      - '.github/workflows/update-files.yml'
+
   workflow_dispatch:
 
 permissions:
@@ -19,26 +22,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate file list
+      - name: Generate files.json
         run: |
           python3 - <<'PY'
           import json
           from pathlib import Path
 
+          folder = Path("files")
+
           files = sorted(
-              p.relative_to("files").as_posix()
-              for p in Path("files").rglob("*")
-              if p.is_file()
-              and p.suffix.lower() == ".pdf"
+              str(path.relative_to(folder))
+              for path in folder.rglob("*")
+              if path.is_file()
+              and path.suffix.lower() == ".pdf"
           )
 
           Path("files.json").write_text(
-              json.dumps(files, indent=2),
+              json.dumps(files, indent=2, ensure_ascii=False)
+              + "\n",
               encoding="utf-8"
           )
+
+          print(f"Found {len(files)} PDF files")
           PY
 
-      - name: Commit updated list
+      - name: Commit updated file list
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
@@ -46,7 +54,9 @@ jobs:
 
           git add files.json
 
-          if ! git diff --cached --quiet; then
-            git commit -m "Update file list"
+          if git diff --cached --quiet; then
+            echo "No changes detected."
+          else
+            git commit -m "Automatically update file list"
             git push
           fi
