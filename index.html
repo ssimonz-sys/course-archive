@@ -3,65 +3,185 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Course Archive</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #24292f;
+      line-height: 1.6;
+    }
+
+    h1 { margin-bottom: 4px; }
+
+    .subtitle { color: #57606a; }
+
+    #search {
+      width: 100%;
+      padding: 12px;
+      margin: 24px 0;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    details {
+      margin: 10px 0;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    summary {
+      padding: 12px 16px;
+      cursor: pointer;
+      font-weight: bold;
+      background: #f6f8fa;
+    }
+
+    summary:hover { background: #eaeef2; }
+
+    .course {
+      margin: 10px 16px;
+      border-color: #eaeef2;
+    }
+
+    .course summary {
+      background: white;
+      color: #0969da;
+    }
+
+    ul {
+      margin: 0;
+      padding: 8px 20px 16px 45px;
+    }
+
+    li { margin: 8px 0; }
+
+    a {
+      color: #0969da;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    .count {
+      float: right;
+      color: #57606a;
+      font-size: 13px;
+      font-weight: normal;
+    }
+
+    #status { color: #57606a; }
+  </style>
 </head>
 
 <body>
   <h1>Course Archive</h1>
-  <p>Free university course materials and study resources.</p>
+  <p class="subtitle">
+    Free university course materials and study resources.
+  </p>
+
+  <input
+    id="search"
+    type="search"
+    placeholder="Search courses or files..."
+    aria-label="Search courses or files"
+  >
 
   <h2>Courses</h2>
-  <div id="courses">Loading files...</div>
+  <p id="status">Loading files...</p>
+  <div id="courses"></div>
 
   <script>
-    async function loadFiles() {
-      const container = document.getElementById("courses");
+    const container = document.getElementById("courses");
+    const status = document.getElementById("status");
+    const search = document.getElementById("search");
 
-      try {
-        const response = await fetch("./files.json");
+    let groups = {};
 
-        if (!response.ok) {
-          throw new Error("Cannot load file list");
-        }
+    function getCategory(filename) {
+      // Recognizes course codes such as BIOL 230 and MICB306.
+      const match = filename.match(/^([A-Z]{2,6})[\s_-]*(\d{3,4})\b/i);
 
-        const files = await response.json();
+      if (!match) {
+        return { subject: "Other", course: "Uncategorized" };
+      }
 
-        if (files.length === 0) {
-          container.textContent = "No files uploaded yet.";
-          return;
-        }
+      return {
+        subject: match[1].toUpperCase(),
+        course: match[1].toUpperCase() + " " + match[2]
+      };
+    }
 
-        const groups = {};
+    function fileCount(courses) {
+      return Object.values(courses)
+        .reduce((sum, files) => sum + files.length, 0);
+    }
 
-        files.forEach(file => {
-          const name = file.split("/").pop();
-          const course = name.match(
-            /^(BIOL|MICB|CHEM|CPSC|MATH|PHYS|STAT|DSCI|APBI|ANTH|HIST)\s*\d+/i
-          );
+    function renderFiles() {
+      const query = search.value.trim().toLowerCase();
+      container.replaceChildren();
+      let totalMatches = 0;
 
-          const category = course
-            ? course[0].toUpperCase().replace(/\s+/g, " ")
-            : "Other";
+      const subjects = Object.keys(groups).sort();
 
-          if (!groups[category]) {
-            groups[category] = [];
-          }
+      subjects.forEach(subject => {
+        const subjectDetails = document.createElement("details");
+        const subjectSummary = document.createElement("summary");
 
-          groups[category].push(file);
-        });
+        const subjectCount = fileCount(groups[subject]);
 
-        container.innerHTML = "";
+        subjectSummary.textContent = "📁 " + subject;
 
-        Object.keys(groups).sort().forEach(course => {
-          const heading = document.createElement("h3");
-          heading.textContent = course;
-          container.appendChild(heading);
+        const subjectBadge = document.createElement("span");
+        subjectBadge.className = "count";
+        subjectBadge.textContent = subjectCount + " files";
+        subjectSummary.appendChild(subjectBadge);
+
+        subjectDetails.appendChild(subjectSummary);
+
+        let subjectHasMatches = false;
+
+        Object.keys(groups[subject]).sort(
+          (a, b) => a.localeCompare(b, undefined, { numeric: true })
+        ).forEach(course => {
+          const matchingFiles = groups[subject][course].filter(file => {
+            const filename = file.split("/").pop();
+            return !query ||
+              subject.toLowerCase().includes(query) ||
+              course.toLowerCase().includes(query) ||
+              filename.toLowerCase().includes(query);
+          });
+
+          if (matchingFiles.length === 0) return;
+
+          subjectHasMatches = true;
+          totalMatches += matchingFiles.length;
+
+          const courseDetails = document.createElement("details");
+          courseDetails.className = "course";
+
+          const courseSummary = document.createElement("summary");
+          courseSummary.textContent = "📂 " + course;
+
+          const courseBadge = document.createElement("span");
+          courseBadge.className = "count";
+          courseBadge.textContent = matchingFiles.length + " files";
+          courseSummary.appendChild(courseBadge);
+
+          courseDetails.appendChild(courseSummary);
 
           const list = document.createElement("ul");
 
-          groups[course].forEach(file => {
+          matchingFiles.sort().forEach(file => {
             const item = document.createElement("li");
             const link = document.createElement("a");
 
@@ -76,16 +196,61 @@
             list.appendChild(item);
           });
 
-          container.appendChild(list);
+          courseDetails.appendChild(list);
+          subjectDetails.appendChild(courseDetails);
+
+          if (query) courseDetails.open = true;
         });
 
+        if (subjectHasMatches) {
+          if (query) subjectDetails.open = true;
+          container.appendChild(subjectDetails);
+        }
+      });
+
+      status.textContent = query
+        ? totalMatches + " matching files"
+        : totalMatches + " files available";
+    }
+
+    async function loadFiles() {
+      try {
+        const response = await fetch("./files.json");
+
+        if (!response.ok) {
+          throw new Error("Cannot load file list");
+        }
+
+        const files = await response.json();
+
+        if (!Array.isArray(files)) {
+          throw new Error("Invalid file list");
+        }
+
+        groups = {};
+
+        files.forEach(file => {
+          if (typeof file !== "string") return;
+
+          const filename = file.split("/").pop();
+          const { subject, course } = getCategory(filename);
+
+          if (!groups[subject]) groups[subject] = {};
+          if (!groups[subject][course]) groups[subject][course] = [];
+
+          groups[subject][course].push(file);
+        });
+
+        renderFiles();
+
       } catch (error) {
-        container.textContent =
+        status.textContent =
           "Unable to load files. Please try again later.";
         console.error(error);
       }
     }
 
+    search.addEventListener("input", renderFiles);
     loadFiles();
   </script>
 </body>
