@@ -1,46 +1,92 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
   <title>Course Archive</title>
 </head>
 
 <body>
   <h1>Course Archive</h1>
-
-  <p>
-    Free university course materials and study resources.
-  </p>
+  <p>Free university course materials and study resources.</p>
 
   <h2>Courses</h2>
+  <div id="courses">Loading files...</div>
 
-<ul>
+  <script>
+    async function loadFiles() {
+      const container = document.getElementById("courses");
 
-<li>
-  BIOL
-  <ul>
-    <li>
-      BIOL 230
-      <ul>
-        <li>
-          <a href="files/BIOL%20230%20EIYL%20Proposal.pdf">
-            EIYL Proposal
-          </a>
-        </li>
-        <li>
-          <a href="files/BIOL%20230%20EIYL%20Final.pdf">
-            How Human Food Waste Influences Crow Foraging Behaviour on the UBC Campus
-          </a>
-        </li>
-      </ul>
-    </li>
-  </ul>
-</li>
+      try {
+        const response = await fetch("./files.json");
 
-  <li>MICB</li>
-  <li>CHEM</li>
-  <li>CPSC</li>
-</ul>
+        if (!response.ok) {
+          throw new Error("Cannot load file list");
+        }
+
+        const files = await response.json();
+
+        if (files.length === 0) {
+          container.textContent = "No files uploaded yet.";
+          return;
+        }
+
+        const groups = {};
+
+        files.forEach(file => {
+          const name = file.split("/").pop();
+          const course = name.match(
+            /^(BIOL|MICB|CHEM|CPSC|MATH|PHYS|STAT|DSCI|APBI|ANTH|HIST)\s*\d+/i
+          );
+
+          const category = course
+            ? course[0].toUpperCase().replace(/\s+/g, " ")
+            : "Other";
+
+          if (!groups[category]) {
+            groups[category] = [];
+          }
+
+          groups[category].push(file);
+        });
+
+        container.innerHTML = "";
+
+        Object.keys(groups).sort().forEach(course => {
+          const heading = document.createElement("h3");
+          heading.textContent = course;
+          container.appendChild(heading);
+
+          const list = document.createElement("ul");
+
+          groups[course].forEach(file => {
+            const item = document.createElement("li");
+            const link = document.createElement("a");
+
+            link.href = "./files/" +
+              file.split("/").map(encodeURIComponent).join("/");
+
+            link.textContent = file.split("/").pop();
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+
+            item.appendChild(link);
+            list.appendChild(item);
+          });
+
+          container.appendChild(list);
+        });
+
+      } catch (error) {
+        container.textContent =
+          "Unable to load files. Please try again later.";
+        console.error(error);
+      }
+    }
+
+    loadFiles();
+  </script>
 </body>
 </html>
