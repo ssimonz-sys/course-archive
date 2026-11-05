@@ -3,7 +3,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
   <title>Admin | Course Archive</title>
 
   <style>
@@ -120,6 +121,7 @@
 
     @media (max-width: 600px) {
       body { padding: 16px; }
+
       main {
         margin: 20px auto;
         padding: 24px;
@@ -149,14 +151,16 @@
     </section>
 
     <section id="admin-section" hidden>
-      <div id="user-status" class="status success"></div>
+      <div id="user-status"
+           class="status success"></div>
 
       <form id="upload-form">
+
         <label for="course">Course Code</label>
         <input
           id="course"
           name="course"
-          placeholder="e.g. APBI 314"
+          placeholder="e.g. BIOL 200"
           maxlength="20"
           autocomplete="off"
           required
@@ -166,26 +170,30 @@
         <input
           id="title"
           name="title"
-          placeholder="e.g. Assignment 5"
+          placeholder="e.g. Final Review Notes"
           maxlength="120"
           required
         >
 
-        <label for="file">Select PDF</label>
+        <label for="file">Select File</label>
         <input
           id="file"
           name="file"
           type="file"
-          accept=".pdf,application/pdf"
+          accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.docx,.ipynb"
           required
         >
 
         <p class="note">
-          PDF files only. Maximum file size: 8 MB.
+          Supported formats:
+          PDF, JPG, JPEG, PNG, WebP, HEIC,
+          DOCX and IPYNB.
+          <br>
+          Maximum file size: 8 MB.
         </p>
 
         <button id="upload-button" type="submit">
-          Upload PDF
+          Upload File
         </button>
       </form>
 
@@ -193,84 +201,125 @@
            class="progress-container" hidden>
         <progress id="upload-progress"
                   max="100" value="0"></progress>
-        <p id="progress-label" class="progress-label">
+
+        <p id="progress-label"
+           class="progress-label">
           Preparing upload...
         </p>
       </div>
 
       <div id="upload-result"
-           class="status" role="status"
-           aria-live="polite" hidden></div>
+           class="status"
+           role="status"
+           aria-live="polite"
+           hidden></div>
 
       <p class="note">
         Documents are stored in the GitHub repository.
         New uploads will appear on the public website
-        after deployment.
+        after deployment, if the homepage supports
+        their file format.
       </p>
     </section>
 
     <div id="auth-error"
          class="status error"
-         role="alert" hidden></div>
+         role="alert"
+         hidden></div>
 
-    <button id="retry-button" type="button" hidden>
+    <button id="retry-button"
+            type="button"
+            hidden>
       Retry
     </button>
   </main>
 
   <script>
-    const loading = document.getElementById("loading");
-    const loginSection = document.getElementById("login-section");
-    const adminSection = document.getElementById("admin-section");
-    const userStatus = document.getElementById("user-status");
-    const authError = document.getElementById("auth-error");
-    const retryButton = document.getElementById("retry-button");
+    const loading =
+      document.getElementById("loading");
 
-    const form = document.getElementById("upload-form");
-    const uploadButton = document.getElementById("upload-button");
-    const fileInput = document.getElementById("file");
-    const result = document.getElementById("upload-result");
+    const loginSection =
+      document.getElementById("login-section");
+
+    const adminSection =
+      document.getElementById("admin-section");
+
+    const userStatus =
+      document.getElementById("user-status");
+
+    const authError =
+      document.getElementById("auth-error");
+
+    const retryButton =
+      document.getElementById("retry-button");
+
+    const form =
+      document.getElementById("upload-form");
+
+    const uploadButton =
+      document.getElementById("upload-button");
+
+    const fileInput =
+      document.getElementById("file");
+
+    const courseInput =
+      document.getElementById("course");
+
+    const titleInput =
+      document.getElementById("title");
+
+    const result =
+      document.getElementById("upload-result");
+
     const progressContainer =
       document.getElementById("progress-container");
+
     const progressBar =
       document.getElementById("upload-progress");
+
     const progressLabel =
       document.getElementById("progress-label");
 
     const MAX_FILE_SIZE = 8 * 1024 * 1024;
 
-    
-const courseInput = document.getElementById("course");
-const titleInput = document.getElementById("title");
+    const ALLOWED_EXTENSIONS = new Set([
+      "pdf", "jpg", "jpeg", "png",
+      "webp", "heic", "docx", "ipynb"
+    ]);
 
-fileInput.addEventListener("change", () => {
-  const file = fileInput.files[0];
-  if (!file) return;
+    // Automatically identify course and document title
+    // from the selected filename.
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file) return;
 
-  const filename = file.name.replace(/\.pdf$/i, "").trim();
+      const filename = file.name
+        .replace(/\.[^.]+$/, "")
+        .trim();
 
-  // Examples:
-  // ENGL 110 Final Prepare.pdf
-  // MICB306 Tutorial 5.pdf
-  // BIOL_230_Lab Report.pdf
-  const match = filename.match(
-    /^([A-Za-z]{2,6})[\s_-]*(\d{3,4})(?:[\s_-]+(.+))?$/i
-  );
+      // Examples:
+      // BIOL 200 Final Review.png
+      // MICB306 Tutorial 5.pdf
+      // BIOL_230_Lab Report.docx
 
-  if (match && match[3] && match[3].trim()) {
-    courseInput.value =
-      match[1].toUpperCase() + " " + match[2];
+      const match = filename.match(
+        /^([A-Za-z]{2,6})[\s_-]*(\d{3,4})(?:[\s_-]+(.+))?$/i
+      );
 
-    titleInput.value = match[3]
-      .replace(/_/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  } else {
-    courseInput.value = "";
-    titleInput.value = "";
-  }
-});
-    
+      if (match && match[3] && match[3].trim()) {
+        courseInput.value =
+          match[1].toUpperCase() + " " + match[2];
+
+        titleInput.value = match[3]
+          .replace(/_/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      } else {
+        courseInput.value = "";
+        titleInput.value = "";
+      }
+    });
+
     function showResult(message, type) {
       result.className = "status " + type;
       result.textContent = message;
@@ -297,7 +346,9 @@ fileInput.addEventListener("change", () => {
         }
 
         if (!response.ok) {
-          throw new Error("Authentication check failed.");
+          throw new Error(
+            "Authentication check failed."
+          );
         }
 
         const data = await response.json();
@@ -307,6 +358,7 @@ fileInput.addEventListener("change", () => {
         if (data.authenticated && data.user) {
           userStatus.textContent =
             "Authenticated as " + data.user.login;
+
           adminSection.hidden = false;
         } else {
           loginSection.hidden = false;
@@ -314,8 +366,10 @@ fileInput.addEventListener("change", () => {
 
       } catch {
         loading.hidden = true;
+
         authError.textContent =
           "Unable to verify authentication. Please try again.";
+
         authError.hidden = false;
         retryButton.hidden = false;
       }
@@ -326,7 +380,7 @@ fileInput.addEventListener("change", () => {
       checkAuthentication
     );
 
-    form.addEventListener("submit", async event => {
+    form.addEventListener("submit", event => {
       event.preventDefault();
 
       if (!form.reportValidity()) return;
@@ -334,43 +388,61 @@ fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
 
       if (!file) {
-        showResult("Please select a PDF file.", "error");
-        return;
-      }
-
-      if (file.size === 0 || file.size > MAX_FILE_SIZE) {
         showResult(
-          "The PDF must be larger than 0 bytes and no more than 8 MB.",
+          "Please select a file.",
           "error"
         );
         return;
       }
 
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        showResult("Only PDF files are supported.", "error");
+      if (
+        file.size === 0 ||
+        file.size > MAX_FILE_SIZE
+      ) {
+        showResult(
+          "The file must be larger than 0 bytes and no more than 8 MB.",
+          "error"
+        );
         return;
       }
 
-      const course = document.getElementById("course")
-        .value.trim().toUpperCase();
+      const extension = file.name
+        .split(".")
+        .pop()
+        .toLowerCase();
+
+      if (!ALLOWED_EXTENSIONS.has(extension)) {
+        showResult(
+          "Unsupported file type. Please select PDF, image, DOCX or IPYNB.",
+          "error"
+        );
+        return;
+      }
+
+      const course = courseInput.value
+        .trim()
+        .toUpperCase();
 
       if (!/^[A-Z]{2,6}\s*\d{3,4}$/.test(course)) {
         showResult(
-          "Enter a valid course code, such as BIOL 230.",
+          "Enter a valid course code, such as BIOL 200.",
           "error"
         );
         return;
       }
 
-      const title = document.getElementById("title")
-        .value.trim();
+      const title = titleInput.value.trim();
 
       if (!title) {
-        showResult("Please enter a document title.", "error");
+        showResult(
+          "Please enter a document title.",
+          "error"
+        );
         return;
       }
 
       const formData = new FormData();
+
       formData.append("course", course);
       formData.append("title", title);
       formData.append("file", file);
@@ -381,7 +453,9 @@ fileInput.addEventListener("change", () => {
 
       progressContainer.hidden = false;
       progressBar.value = 0;
-      progressLabel.textContent = "Starting upload...";
+
+      progressLabel.textContent =
+        "Starting upload...";
 
       const xhr = new XMLHttpRequest();
 
@@ -390,30 +464,41 @@ fileInput.addEventListener("change", () => {
       xhr.responseType = "json";
       xhr.timeout = 120000;
 
-      xhr.upload.addEventListener("progress", event => {
-        if (event.lengthComputable) {
-          const percent = Math.round(
-            event.loaded / event.total * 100
-          );
+      xhr.upload.addEventListener(
+        "progress",
+        event => {
+          if (event.lengthComputable) {
+            const percent = Math.round(
+              event.loaded / event.total * 100
+            );
 
-          progressBar.value = percent;
+            progressBar.value = percent;
 
-          progressLabel.textContent =
-            percent < 100
-              ? "Sending PDF: " + percent + "%"
-              : "PDF sent. Waiting for GitHub confirmation...";
+            progressLabel.textContent =
+              percent < 100
+                ? "Sending file: " + percent + "%"
+                : "File sent. Waiting for GitHub confirmation...";
+          }
         }
-      });
+      );
+
+      function resetUploadButton() {
+        uploadButton.disabled = false;
+        uploadButton.textContent = "Upload File";
+      }
 
       xhr.addEventListener("load", () => {
         const data = xhr.response || {};
 
         if (xhr.status === 201 && data.success) {
           progressBar.value = 100;
-          progressLabel.textContent = "Upload complete.";
+
+          progressLabel.textContent =
+            "Upload complete.";
 
           showResult(
-            "Successfully uploaded: " + data.filename +
+            "Successfully uploaded: " +
+            data.filename +
             ". The website will update after deployment.",
             "success"
           );
@@ -422,23 +507,25 @@ fileInput.addEventListener("change", () => {
 
         } else {
           showResult(
-            data.error || "Upload failed. Please try again.",
+            data.error ||
+              "Upload failed. Please try again.",
             "error"
           );
 
-          progressLabel.textContent = "Upload failed.";
+          progressLabel.textContent =
+            "Upload failed.";
 
           if (xhr.status === 401) {
             showResult(
               "Your login has expired. Please sign in again.",
               "error"
             );
+
             checkAuthentication();
           }
         }
 
-        uploadButton.disabled = false;
-        uploadButton.textContent = "Upload PDF";
+        resetUploadButton();
       });
 
       xhr.addEventListener("error", () => {
@@ -446,9 +533,11 @@ fileInput.addEventListener("change", () => {
           "Network error. Check your connection and try again.",
           "error"
         );
-        uploadButton.disabled = false;
-        uploadButton.textContent = "Upload PDF";
-        progressLabel.textContent = "Upload interrupted.";
+
+        resetUploadButton();
+
+        progressLabel.textContent =
+          "Upload interrupted.";
       });
 
       xhr.addEventListener("timeout", () => {
@@ -456,27 +545,40 @@ fileInput.addEventListener("change", () => {
           "Request timed out. Check GitHub before retrying.",
           "error"
         );
-        uploadButton.disabled = false;
-        uploadButton.textContent = "Upload PDF";
-        progressLabel.textContent = "Upload timed out.";
+
+        resetUploadButton();
+
+        progressLabel.textContent =
+          "Upload timed out.";
       });
 
       xhr.send(formData);
     });
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
     const error = params.get("error");
 
     if (error) {
       const messages = {
-        invalid_state: "Login expired. Please sign in again.",
-        token_exchange: "GitHub authorization failed.",
-        github_user: "Unable to retrieve your GitHub account.",
-        unauthorized: "This account is not authorized."
+        invalid_state:
+          "Login expired. Please sign in again.",
+
+        token_exchange:
+          "GitHub authorization failed.",
+
+        github_user:
+          "Unable to retrieve your GitHub account.",
+
+        unauthorized:
+          "This account is not authorized."
       };
 
       authError.textContent =
-        messages[error] || "Authentication failed.";
+        messages[error] ||
+        "Authentication failed.";
 
       authError.hidden = false;
     }
