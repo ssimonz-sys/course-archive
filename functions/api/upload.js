@@ -3,6 +3,11 @@ const REPO_OWNER = "ssimonz-sys";
 const REPO_NAME = "course-archive";
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
 
+const ALLOWED = new Set([
+  "pdf", "jpg", "jpeg", "png",
+  "webp", "heic", "docx", "ipynb"
+]);
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -37,7 +42,9 @@ async function verifyAdmin(request, env) {
   const session = cookies
     .split(";")
     .map(item => item.trim())
-    .find(item => item.startsWith("course_archive_session="));
+    .find(item =>
+      item.startsWith("course_archive_session=")
+    );
 
   if (!session) return false;
 
@@ -112,12 +119,84 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+function matchesSignature(bytes, extension) {
+  const starts = (...signature) =>
+    signature.every((value, i) => bytes[i] === value);
+
+  if (extension === "pdf") {
+    return starts(0x25, 0x50, 0x44, 0x46, 0x2d);
+  }
+
+  if (extension === "jpg" || extension === "jpeg") {
+    return starts(0xff, 0xd8, 0xff);
+  }
+
+  if (extension === "png") {
+    return starts(
+      0x89, 0x50, 0x4e, 0x47,
+      0x0d, 0x0a, 0x1a, 0x0a
+    );
+  }
+
+  if (extension === "webp") {
+    return (
+      starts(0x52, 0x49, 0x46, 0x46) &&
+      String.fromCharCode(...bytes.slice(8, 12)) ===
+        "WEBP"
+    );
+  }
+
+  if (extension === "heic") {
+    const box = String.fromCharCode(
+      ...bytes.slice(4, 12)
+    );
+
+    return (
+      box.startsWith("ftyp") &&
+      [
+        "heic", "heix", "hevc",
+        "hevx", "mif1", "msf1"
+      ].includes(
+        String.fromCharCode(...bytes.slice(8, 12))
+      )
+    );
+  }
+
+  if (extension === "docx") {
+    return starts(0x50, 0x4b, 0x03, 0x04);
+  }
+
+  if (extension === "ipynb") {
+    try {
+      const notebook = JSON.parse(
+        new TextDecoder("utf-8", {
+          fatal: true
+        }).decode(bytes)
+      );
+
+      return (
+        notebook &&
+        typeof notebook === "object" &&
+        Array.isArray(notebook.cells) &&
+        typeof notebook.metadata === "object" &&
+        Number.isInteger(notebook.nbformat)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 export async function onRequestPost({ request, env }) {
   const origin = new URL(request.url).origin;
 
   // Protect against cross-site upload requests.
   if (request.headers.get("Origin") !== origin) {
-    return json({ error: "Invalid request origin." }, 403);
+    return json({
+      error: "Invalid request origin."
+    }, 403);
   }
 
   // Verify the signed administrator session.
@@ -134,23 +213,28 @@ export async function onRequestPost({ request, env }) {
   }
 
   // Limit request size before parsing.
-  const contentLength = Number(
-    request.headers.get("Content-Length")
-  );
+  const lengthHeader =
+    request.headers.get("Content-Length");
 
   if (
-    Number.isFinite(contentLength) &&
-    contentLength > MAX_FILE_SIZE + 65536
+    lengthHeader !== null &&
+    Number(lengthHeader) > MAX_FILE_SIZE + 65536
   ) {
     return json({
-      error: "PDF must be smaller than 8 MB."
+      error: "File must be smaller than 8 MB."
     }, 413);
   }
 
-  const contentType = request.headers.get("Content-Type") || "";
+  const contentType =
+    request.headers.get("Content-Type") || "";
 
-  if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
-    return json({ error: "Invalid upload format." }, 400);
+  if (
+    !contentType.toLowerCase()
+      .startsWith("multipart/form-data")
+  ) {
+    return json({
+      error: "Invalid upload format."
+    }, 400);
   }
 
   let form;
@@ -158,61 +242,84 @@ export async function onRequestPost({ request, env }) {
   try {
     form = await request.formData();
   } catch {
-    return json({ error: "Unable to read upload." }, 400);
+    return json({
+      error: "Unable to read upload."
+    }, 400);
   }
 
   const course = cleanText(form.get("course"));
   const title = cleanText(form.get("title"));
   const file = form.get("file");
 
-  const match = course.match(/^([A-Za-z]{2,6})\s*(\d{3,4})$/);
+  const match = course.match(
+    /^([A-Za-z]{2,6})\s*(\d{3,4})$/
+  );
 
   if (!match) {
     return json({
-      error: "Course code must look like BIOL 230 or MICB 306."
+      error:
+        "Course code must look like BIOL 230 or MICB 306."
     }, 400);
   }
 
   if (!title || title.length > 120) {
     return json({
-      error: "Document title must contain 1 to 120 characters."
+      error:
+        "Document title must contain 1 to 120 characters."
     }, 400);
   }
 
   if (!(file instanceof File)) {
-    return json({ error: "Please select a PDF." }, 400);
+    return json({
+      error: "Please select a file."
+    }, 400);
   }
 
   if (file.size === 0 || file.size > MAX_FILE_SIZE) {
     return json({
-      error: "PDF must be between 1 byte and 8 MB."
+      error: "File must be between 1 byte and 8 MB."
     }, 413);
   }
 
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
-    return json({ error: "Only PDF files are allowed." }, 400);
-  }
+  // Check allowed extensions.
+  const extension = file.name
+    .split(".")
+    .pop()
+    .toLowerCase();
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-
-  // Check the PDF file signature.
-  const signature = new TextDecoder().decode(bytes.slice(0, 5));
-
-  if (signature !== "%PDF-") {
+  if (!ALLOWED.has(extension)) {
     return json({
-      error: "The selected file is not a valid PDF header."
+      error: "Unsupported file type."
     }, 400);
   }
 
-  const courseCode = `${match[1].toUpperCase()} ${match[2]}`;
+  const bytes = new Uint8Array(
+    await file.arrayBuffer()
+  );
+
+  // Validate file contents.
+  if (!matchesSignature(bytes, extension)) {
+    return json({
+      error:
+        "File contents do not match the selected format."
+    }, 400);
+  }
+
+  const courseCode =
+    `${match[1].toUpperCase()} ${match[2]}`;
+
   const documentTitle = safeFilename(title);
 
   if (!documentTitle) {
-    return json({ error: "Invalid document title." }, 400);
+    return json({
+      error: "Invalid document title."
+    }, 400);
   }
 
-  // Keep filenames compatible with the existing homepage.
-  const filename = `${courseCode} ${documentTitle}.pdf`;
+  // Keep filenames compatible with the homepage.
+  const filename =
+    `${courseCode} ${documentTitle}.${extension}`;
+
   const path = `files/${filename}`;
 
   const encodedPath = path
@@ -250,7 +357,7 @@ export async function onRequestPost({ request, env }) {
       }, 502);
     }
 
-    // Commit the PDF to the GitHub repository.
+    // Commit the file to the GitHub repository.
     const response = await fetch(githubUrl, {
       method: "PUT",
       headers: {
@@ -264,9 +371,13 @@ export async function onRequestPost({ request, env }) {
       })
     });
 
-    if (response.status === 409 || response.status === 422) {
+    if (
+      response.status === 409 ||
+      response.status === 422
+    ) {
       return json({
-        error: "GitHub rejected the upload. The file may already exist."
+        error:
+          "GitHub rejected the upload. The file may already exist."
       }, 409);
     }
 
@@ -281,7 +392,8 @@ export async function onRequestPost({ request, env }) {
       success: true,
       filename,
       path,
-      message: "PDF uploaded. Website deployment is pending."
+      message:
+        "File uploaded. Website deployment is pending."
     }, 201);
 
   } catch {
