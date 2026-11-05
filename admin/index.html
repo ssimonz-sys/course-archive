@@ -239,6 +239,38 @@
 
     const MAX_FILE_SIZE = 8 * 1024 * 1024;
 
+    
+const courseInput = document.getElementById("course");
+const titleInput = document.getElementById("title");
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const filename = file.name.replace(/\.pdf$/i, "").trim();
+
+  // Examples:
+  // ENGL 110 Final Prepare.pdf
+  // MICB306 Tutorial 5.pdf
+  // BIOL_230_Lab Report.pdf
+  const match = filename.match(
+    /^([A-Za-z]{2,6})[\s_-]*(\d{3,4})(?:[\s_-]+(.+))?$/i
+  );
+
+  if (match && match[3] && match[3].trim()) {
+    courseInput.value =
+      match[1].toUpperCase() + " " + match[2];
+
+    titleInput.value = match[3]
+      .replace(/_/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } else {
+    courseInput.value = "";
+    titleInput.value = "";
+  }
+});
+    
     function showResult(message, type) {
       result.className = "status " + type;
       result.textContent = message;
