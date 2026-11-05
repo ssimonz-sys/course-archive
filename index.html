@@ -6,6 +6,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Course Archive</title>
 
+  
+.admin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  color: #57606a;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-link:hover {
+  background: #f6f8fa;
+  color: #0969da;
+  text-decoration: none;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+@media (max-width: 480px) {
+  .page-header {
+    align-items: center;
+  }
+}
+
+  
   <style>
     * { box-sizing: border-box; }
 
@@ -83,11 +117,21 @@
   </style>
 </head>
 
-<body>
-  <h1>Course Archive</h1>
-  <p class="subtitle">
-    Free university course materials and study resources.
-  </p>
+
+<div class="page-header">
+  <div>
+    <h1>Course Archive</h1>
+    <p class="subtitle">
+      Free university course materials and study resources.
+    </p>
+  </div>
+
+  <a class="admin-link" href="/admin/" title="Administrator Upload">
+    <span aria-hidden="true">↥</span>
+    <span>Admin Upload</span>
+  </a>
+</div>
+
 
   <input
     id="search"
