@@ -2,14 +2,28 @@
 const COOKIE_NAME = "course_archive_session";
 
 function redirect(url, cookie) {
-  const headers = { Location: url, "Cache-Control": "no-store" };
-  if (cookie) headers["Set-Cookie"] = cookie;
-  return new Response(null, { status: 302, headers });
+  const headers = {
+    Location: url,
+    "Cache-Control": "no-store"
+  };
+
+  if (cookie) {
+    headers["Set-Cookie"] = cookie;
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers
+  });
 }
 
 function toBase64Url(bytes) {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
   return btoa(binary)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -18,12 +32,18 @@ function toBase64Url(bytes) {
 
 async function signSession(payload, secret) {
   const encoder = new TextEncoder();
-  const body = toBase64Url(encoder.encode(JSON.stringify(payload)));
+
+  const body = toBase64Url(
+    encoder.encode(JSON.stringify(payload))
+  );
 
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
+    {
+      name: "HMAC",
+      hash: "SHA-256"
+    },
     false,
     ["sign"]
   );
@@ -40,25 +60,40 @@ async function signSession(payload, secret) {
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const origin = url.origin;
+
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
 
   const cookieHeader = request.headers.get("Cookie") || "";
+
   const cookies = Object.fromEntries(
     cookieHeader.split(";").map(part => {
       const index = part.indexOf("=");
+
       return index < 0
         ? [part.trim(), ""]
-        : [part.slice(0, index).trim(), part.slice(index + 1).trim()];
+        : [
+            part.slice(0, index).trim(),
+            part.slice(index + 1).trim()
+          ];
     })
   );
 
+  // Clear the OAuth state cookie using its original path.
   const clearState =
-    "oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
+    "oauth_state=; Path=/api/auth; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
 
-  if (!code || !state || !cookies.oauth_state ||
-      state !== cookies.oauth_state) {
-    return redirect("/admin.html?error=invalid_state", clearState);
+  // Validate the authorization code and OAuth state.
+  if (
+    !code ||
+    !state ||
+    !cookies.oauth_state ||
+    state !== cookies.oauth_state
+  ) {
+    return redirect(
+      "/admin/?error=invalid_state",
+      clearState
+    );
   }
 
   const {
@@ -68,11 +103,19 @@ export async function onRequestGet({ request, env }) {
     ADMIN_GITHUB_ID
   } = env;
 
-  if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET ||
-      !SESSION_SECRET || !ADMIN_GITHUB_ID) {
-    return new Response("OAuth configuration missing", { status: 500 });
+  if (
+    !GITHUB_CLIENT_ID ||
+    !GITHUB_CLIENT_SECRET ||
+    !SESSION_SECRET ||
+    !ADMIN_GITHUB_ID
+  ) {
+    return new Response(
+      "OAuth configuration missing",
+      { status: 500 }
+    );
   }
 
+  // Exchange the authorization code for a GitHub token.
   const tokenResponse = await fetch(
     "https://github.com/login/oauth/access_token",
     {
@@ -91,50 +134,75 @@ export async function onRequestGet({ request, env }) {
   );
 
   if (!tokenResponse.ok) {
-    return redirect("/admin.html?error=token_exchange", clearState);
+    return redirect(
+      "/admin/?error=token_exchange",
+      clearState
+    );
   }
 
   const tokenData = await tokenResponse.json();
 
   if (!tokenData.access_token) {
-    return redirect("/admin.html?error=token_exchange", clearState);
+    return redirect(
+      "/admin/?error=token_exchange",
+      clearState
+    );
   }
 
-  const userResponse = await fetch("https://api.github.com/user", {
-    headers: {
-      "Authorization": `Bearer ${tokenData.access_token}`,
-      "Accept": "application/vnd.github+json",
-      "User-Agent": "CourseArchive"
+  // Retrieve the authenticated GitHub account.
+  const userResponse = await fetch(
+    "https://api.github.com/user",
+    {
+      headers: {
+        "Authorization": `Bearer ${tokenData.access_token}`,
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "CourseArchive"
+      }
     }
-  });
+  );
 
   if (!userResponse.ok) {
-    return redirect("/admin.html?error=github_user", clearState);
+    return redirect(
+      "/admin/?error=github_user",
+      clearState
+    );
   }
 
   const user = await userResponse.json();
 
+  // Only the configured GitHub account can log in.
   if (String(user.id) !== String(ADMIN_GITHUB_ID)) {
-    return redirect("/admin.html?error=unauthorized", clearState);
+    return redirect(
+      "/admin/?error=unauthorized",
+      clearState
+    );
   }
 
-  const session = await signSession({
-    id: user.id,
-    login: user.login,
-    exp: Math.floor(Date.now() / 1000) + 86400
-  }, SESSION_SECRET);
+  // Create a signed session valid for 24 hours.
+  const session = await signSession(
+    {
+      id: user.id,
+      login: user.login,
+      exp: Math.floor(Date.now() / 1000) + 86400
+    },
+    SESSION_SECRET
+  );
 
   const sessionCookie =
     `${COOKIE_NAME}=${session}; Path=/; HttpOnly; Secure; ` +
     "SameSite=Lax; Max-Age=86400";
 
+  // Clear the temporary OAuth cookie and save the session.
   const headers = new Headers({
-    Location: "/admin.html?login=success",
+    Location: "/admin/?login=success",
     "Cache-Control": "no-store"
   });
 
   headers.append("Set-Cookie", clearState);
   headers.append("Set-Cookie", sessionCookie);
 
-  return new Response(null, { status: 302, headers });
+  return new Response(null, {
+    status: 302,
+    headers
+  });
 }
