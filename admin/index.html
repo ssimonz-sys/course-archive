@@ -3,9 +3,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Admin | Course Archive</title>
+
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -14,6 +14,7 @@
       margin: 0;
       padding: 40px 20px;
     }
+
     main {
       max-width: 600px;
       margin: 40px auto;
@@ -22,12 +23,17 @@
       border: 1px solid #d0d7de;
       border-radius: 12px;
     }
-    h1 { margin-top: 0; }
+
+    h1 {
+      margin-top: 0;
+    }
+
     label {
       display: block;
       margin: 20px 0 8px;
       font-weight: bold;
     }
+
     input {
       box-sizing: border-box;
       width: 100%;
@@ -35,7 +41,10 @@
       border: 1px solid #d0d7de;
       border-radius: 6px;
     }
-    button {
+
+    button,
+    .login-button {
+      display: inline-block;
       margin-top: 24px;
       padding: 12px 24px;
       border: none;
@@ -43,44 +52,191 @@
       background: #0969da;
       color: white;
       cursor: pointer;
+      font-size: 14px;
+      text-decoration: none;
     }
+
     button:disabled {
       background: #8c959f;
       cursor: not-allowed;
     }
+
     .note {
       color: #57606a;
       font-size: 14px;
     }
+
+    .status {
+      margin-top: 20px;
+      padding: 14px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .success {
+      background: #dafbe1;
+      color: #116329;
+      border: 1px solid #aceebb;
+    }
+
+    .error {
+      background: #ffebe9;
+      color: #cf222e;
+      border: 1px solid #ffcecb;
+    }
+
+    .logout-button {
+      background: #57606a;
+      margin-top: 12px;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
   </style>
 </head>
+
 <body>
   <main>
     <h1>Course Archive Admin</h1>
     <p class="note">Administrator upload panel</p>
 
-    <form>
-      <label for="course">Course Code</label>
-      <input id="course" placeholder="e.g. APBI 314"
-             required>
-
-      <label for="title">Document Title</label>
-      <input id="title" placeholder="e.g. Assignment 5"
-             required>
-
-      <label for="file">Select PDF</label>
-      <input id="file" type="file"
-             accept=".pdf,application/pdf" required>
-
-      <button type="button" disabled>
-        Upload (Coming Soon)
-      </button>
-    </form>
-
-    <p class="note">
-      Upload functionality will be enabled after
-      administrator authentication is configured.
+    <p id="loading" class="note">
+      Checking administrator authentication...
     </p>
+
+    <section id="login-section" hidden>
+      <p class="note">
+        Please sign in with the authorized GitHub account
+        to access the administrator upload panel.
+      </p>
+
+      <a class="login-button" href="/api/auth/login">
+        Sign in with GitHub
+      </a>
+    </section>
+
+    <section id="admin-section" hidden>
+      <div id="user-status" class="status success"></div>
+
+      <form id="upload-form">
+        <label for="course">Course Code</label>
+        <input
+          id="course"
+          name="course"
+          placeholder="e.g. APBI 314"
+          required
+        >
+
+        <label for="title">Document Title</label>
+        <input
+          id="title"
+          name="title"
+          placeholder="e.g. Assignment 5"
+          required
+        >
+
+        <label for="file">Select PDF</label>
+        <input
+          id="file"
+          name="file"
+          type="file"
+          accept=".pdf,application/pdf"
+          required
+        >
+
+        <button type="button" disabled>
+          Upload (Coming Soon)
+        </button>
+      </form>
+
+      <p class="note">
+        Authentication is configured.
+        PDF uploading will be enabled next.
+      </p>
+    </section>
+
+    <div id="error-status" class="status error" hidden></div>
+
+    <button id="retry-button" type="button" hidden>
+      Retry
+    </button>
   </main>
+
+  <script>
+    const loading = document.getElementById("loading");
+    const loginSection = document.getElementById("login-section");
+    const adminSection = document.getElementById("admin-section");
+    const userStatus = document.getElementById("user-status");
+    const errorStatus = document.getElementById("error-status");
+    const retryButton = document.getElementById("retry-button");
+
+    async function checkAuthentication() {
+      loading.hidden = false;
+      loginSection.hidden = true;
+      adminSection.hidden = true;
+      errorStatus.hidden = true;
+      retryButton.hidden = true;
+
+      try {
+        const response = await fetch("/api/auth/me", {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+
+        if (response.status === 401) {
+          loading.hidden = true;
+          loginSection.hidden = false;
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Authentication service unavailable.");
+        }
+
+        const data = await response.json();
+
+        loading.hidden = true;
+
+        if (data.authenticated === true && data.user) {
+          userStatus.textContent =
+            "Authenticated as " + data.user.login;
+
+          adminSection.hidden = false;
+        } else {
+          loginSection.hidden = false;
+        }
+
+      } catch (error) {
+        loading.hidden = true;
+        errorStatus.textContent =
+          "Unable to verify authentication. Please try again.";
+        errorStatus.hidden = false;
+        retryButton.hidden = false;
+      }
+    }
+
+    retryButton.addEventListener("click", checkAuthentication);
+
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+
+    if (error) {
+      const messages = {
+        invalid_state: "Login session expired. Please sign in again.",
+        token_exchange: "GitHub authorization failed. Please try again.",
+        github_user: "Unable to retrieve your GitHub account.",
+        unauthorized: "This GitHub account is not authorized."
+      };
+
+      errorStatus.textContent =
+        messages[error] || "Authentication failed.";
+
+      errorStatus.hidden = false;
+    }
+
+    checkAuthentication();
+  </script>
 </body>
 </html>
