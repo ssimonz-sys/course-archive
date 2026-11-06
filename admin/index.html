@@ -93,12 +93,6 @@
       border: 1px solid #ffcecb;
     }
 
-    .info {
-      background: #ddf4ff;
-      color: #0550ae;
-      border: 1px solid #b6e3ff;
-    }
-
     .progress-container {
       margin-top: 20px;
     }
@@ -170,7 +164,7 @@
         <input
           id="title"
           name="title"
-          placeholder="e.g. Final Review Notes"
+          placeholder="e.g. Final Exam Cheat Sheet"
           maxlength="120"
           required
         >
@@ -188,7 +182,6 @@
           Supported formats:
           PDF, JPG, JPEG, PNG, WebP, HEIC,
           DOCX and IPYNB.
-          <br>
           Maximum file size: 8 MB.
         </p>
 
@@ -217,8 +210,7 @@
       <p class="note">
         Documents are stored in the GitHub repository.
         New uploads will appear on the public website
-        after deployment, if the homepage supports
-        their file format.
+        after deployment, if supported by the homepage.
       </p>
     </section>
 
@@ -287,8 +279,7 @@
       "webp", "heic", "docx", "ipynb"
     ]);
 
-    // Automatically identify course and document title
-    // from the selected filename.
+    // Automatically identify the course and title.
     fileInput.addEventListener("change", () => {
       const file = fileInput.files[0];
       if (!file) return;
@@ -296,11 +287,6 @@
       const filename = file.name
         .replace(/\.[^.]+$/, "")
         .trim();
-
-      // Examples:
-      // BIOL 200 Final Review.png
-      // MICB306 Tutorial 5.pdf
-      // BIOL_230_Lab Report.docx
 
       const match = filename.match(
         /^([A-Za-z]{2,6})[\s_-]*(\d{3,4})(?:[\s_-]+(.+))?$/i
@@ -324,6 +310,66 @@
       result.className = "status " + type;
       result.textContent = message;
       result.hidden = false;
+    }
+
+    function setProgress(value, message) {
+      progressContainer.hidden = false;
+      progressBar.value = value;
+      progressLabel.textContent = message;
+    }
+
+    function resetUploadButton() {
+      uploadButton.disabled = false;
+      uploadButton.textContent = "Upload File";
+    }
+
+    // Convert the selected file to Base64 in the browser.
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          const result = reader.result;
+
+          if (typeof result !== "string") {
+            reject(new Error("Unable to encode file."));
+            return;
+          }
+
+          const comma = result.indexOf(",");
+
+          if (comma === -1) {
+            reject(new Error("Invalid encoded file."));
+            return;
+          }
+
+          resolve(result.slice(comma + 1));
+        };
+
+        reader.onerror = () => {
+          reject(new Error("Unable to read file."));
+        };
+
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function validateNotebook(file) {
+      const text = await file.text();
+      const notebook = JSON.parse(text);
+
+      if (
+        !notebook ||
+        typeof notebook !== "object" ||
+        !Array.isArray(notebook.cells) ||
+        !notebook.metadata ||
+        typeof notebook.metadata !== "object" ||
+        !Number.isInteger(notebook.nbformat)
+      ) {
+        throw new Error(
+          "The selected IPYNB is not a valid notebook."
+        );
+      }
     }
 
     async function checkAuthentication() {
@@ -380,7 +426,7 @@
       checkAuthentication
     );
 
-    form.addEventListener("submit", event => {
+    form.addEventListener("submit", async event => {
       event.preventDefault();
 
       if (!form.reportValidity()) return;
@@ -413,7 +459,7 @@
 
       if (!ALLOWED_EXTENSIONS.has(extension)) {
         showResult(
-          "Unsupported file type. Please select PDF, image, DOCX or IPYNB.",
+          "Unsupported file type.",
           "error"
         );
         return;
@@ -441,118 +487,136 @@
         return;
       }
 
-      const formData = new FormData();
-
-      formData.append("course", course);
-      formData.append("title", title);
-      formData.append("file", file);
-
       uploadButton.disabled = true;
       uploadButton.textContent = "Uploading...";
       result.hidden = true;
 
-      progressContainer.hidden = false;
-      progressBar.value = 0;
+      try {
+        setProgress(5, "Preparing file...");
 
-      progressLabel.textContent =
-        "Starting upload...";
+        if (extension === "ipynb") {
+          await validateNotebook(file);
+        }
 
-      const xhr = new XMLHttpRequest();
+        setProgress(15, "Encoding file...");
 
-      xhr.open("POST", "/api/upload");
-      xhr.withCredentials = true;
-      xhr.responseType = "json";
-      xhr.timeout = 120000;
+        const base64 = await fileToBase64(file);
 
-      xhr.upload.addEventListener(
-        "progress",
-        event => {
-          if (event.lengthComputable) {
-            const percent = Math.round(
-              event.loaded / event.total * 100
+        const payload = JSON.stringify({
+          course,
+          title,
+          filename: file.name,
+          content: base64
+        });
+
+        setProgress(25, "Starting upload...");
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.open("POST", "/api/upload");
+        xhr.withCredentials = true;
+        xhr.responseType = "json";
+        xhr.timeout = 120000;
+
+        xhr.setRequestHeader(
+          "Content-Type",
+          "application/json"
+        );
+
+        xhr.upload.addEventListener(
+          "progress",
+          event => {
+            if (event.lengthComputable) {
+              const percent = Math.round(
+                event.loaded / event.total * 100
+              );
+
+              const overall = 25 +
+                Math.round(percent * 0.65);
+
+              setProgress(
+                Math.min(overall, 90),
+                percent < 100
+                  ? "Sending file: " + percent + "%"
+                  : "File sent. Waiting for GitHub confirmation..."
+              );
+            }
+          }
+        );
+
+        xhr.addEventListener("load", () => {
+          const data = xhr.response || {};
+
+          if (xhr.status === 201 && data.success) {
+            setProgress(100, "Upload complete.");
+
+            showResult(
+              "Successfully uploaded: " +
+              data.filename +
+              ". The website will update after deployment.",
+              "success"
             );
 
-            progressBar.value = percent;
+            form.reset();
 
-            progressLabel.textContent =
-              percent < 100
-                ? "Sending file: " + percent + "%"
-                : "File sent. Waiting for GitHub confirmation...";
+          } else {
+            const message =
+              data.error ||
+              (
+                xhr.status === 1102 ||
+                xhr.status >= 500
+                  ? "Server error. Check Cloudflare Worker logs."
+                  : "Upload failed. Please try again."
+              );
+
+            showResult(message, "error");
+
+            setProgress(0, "Upload failed.");
+
+            if (xhr.status === 401) {
+              showResult(
+                "Your login has expired. Please sign in again.",
+                "error"
+              );
+
+              checkAuthentication();
+            }
           }
-        }
-      );
 
-      function resetUploadButton() {
-        uploadButton.disabled = false;
-        uploadButton.textContent = "Upload File";
-      }
+          resetUploadButton();
+        });
 
-      xhr.addEventListener("load", () => {
-        const data = xhr.response || {};
-
-        if (xhr.status === 201 && data.success) {
-          progressBar.value = 100;
-
-          progressLabel.textContent =
-            "Upload complete.";
-
+        xhr.addEventListener("error", () => {
           showResult(
-            "Successfully uploaded: " +
-            data.filename +
-            ". The website will update after deployment.",
-            "success"
-          );
-
-          form.reset();
-
-        } else {
-          showResult(
-            data.error ||
-              "Upload failed. Please try again.",
+            "Network error. Check your connection and try again.",
             "error"
           );
 
-          progressLabel.textContent =
-            "Upload failed.";
+          setProgress(0, "Upload interrupted.");
+          resetUploadButton();
+        });
 
-          if (xhr.status === 401) {
-            showResult(
-              "Your login has expired. Please sign in again.",
-              "error"
-            );
+        xhr.addEventListener("timeout", () => {
+          showResult(
+            "Request timed out. Check GitHub before retrying.",
+            "error"
+          );
 
-            checkAuthentication();
-          }
-        }
+          setProgress(0, "Upload timed out.");
+          resetUploadButton();
+        });
 
-        resetUploadButton();
-      });
+        xhr.send(payload);
 
-      xhr.addEventListener("error", () => {
+      } catch (error) {
         showResult(
-          "Network error. Check your connection and try again.",
+          error.message || "Unable to prepare file.",
           "error"
         );
 
+        setProgress(0, "Upload failed.");
         resetUploadButton();
-
-        progressLabel.textContent =
-          "Upload interrupted.";
-      });
-
-      xhr.addEventListener("timeout", () => {
-        showResult(
-          "Request timed out. Check GitHub before retrying.",
-          "error"
-        );
-
-        resetUploadButton();
-
-        progressLabel.textContent =
-          "Upload timed out.";
-      });
-
-      xhr.send(formData);
+      }
     });
 
     const params = new URLSearchParams(
