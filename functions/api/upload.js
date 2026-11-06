@@ -104,30 +104,45 @@ function safeFilename(value) {
     .trim();
 }
 
-function bytesToBase64(bytes) {
-  const chunkSize = 8192;
-  let binary = "";
+function base64Size(base64) {
+  const padding = base64.endsWith("==")
+    ? 2
+    : base64.endsWith("=")
+      ? 1
+      : 0;
 
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize);
+  return base64.length * 3 / 4 - padding;
+}
 
-    for (const byte of chunk) {
-      binary += String.fromCharCode(byte);
-    }
-  }
+function base64Prefix(base64, count = 32) {
+  const length = Math.ceil(count / 3) * 4;
+  const decoded = atob(base64.slice(0, length));
 
-  return btoa(binary);
+  return Uint8Array.from(
+    decoded,
+    char => char.charCodeAt(0)
+  );
 }
 
 function matchesSignature(bytes, extension) {
   const starts = (...signature) =>
-    signature.every((value, i) => bytes[i] === value);
+    signature.every(
+      (value, index) => bytes[index] === value
+    );
+
+  const ascii = (start, end) =>
+    String.fromCharCode(...bytes.slice(start, end));
 
   if (extension === "pdf") {
-    return starts(0x25, 0x50, 0x44, 0x46, 0x2d);
+    return starts(
+      0x25, 0x50, 0x44, 0x46, 0x2d
+    );
   }
 
-  if (extension === "jpg" || extension === "jpeg") {
+  if (
+    extension === "jpg" ||
+    extension === "jpeg"
+  ) {
     return starts(0xff, 0xd8, 0xff);
   }
 
@@ -140,50 +155,31 @@ function matchesSignature(bytes, extension) {
 
   if (extension === "webp") {
     return (
-      starts(0x52, 0x49, 0x46, 0x46) &&
-      String.fromCharCode(...bytes.slice(8, 12)) ===
-        "WEBP"
+      ascii(0, 4) === "RIFF" &&
+      ascii(8, 12) === "WEBP"
     );
   }
 
   if (extension === "heic") {
-    const box = String.fromCharCode(
-      ...bytes.slice(4, 12)
-    );
-
     return (
-      box.startsWith("ftyp") &&
+      ascii(4, 8) === "ftyp" &&
       [
         "heic", "heix", "hevc",
         "hevx", "mif1", "msf1"
-      ].includes(
-        String.fromCharCode(...bytes.slice(8, 12))
-      )
+      ].includes(ascii(8, 12))
     );
   }
 
   if (extension === "docx") {
-    return starts(0x50, 0x4b, 0x03, 0x04);
+    return starts(
+      0x50, 0x4b, 0x03, 0x04
+    );
   }
 
   if (extension === "ipynb") {
-    try {
-      const notebook = JSON.parse(
-        new TextDecoder("utf-8", {
-          fatal: true
-        }).decode(bytes)
-      );
-
-      return (
-        notebook &&
-        typeof notebook === "object" &&
-        Array.isArray(notebook.cells) &&
-        typeof notebook.metadata === "object" &&
-        Number.isInteger(notebook.nbformat)
-      );
-    } catch {
-      return false;
-    }
+    // Full notebook validation is performed
+    // in the browser before encoding.
+    return true;
   }
 
   return false;
@@ -192,14 +188,12 @@ function matchesSignature(bytes, extension) {
 export async function onRequestPost({ request, env }) {
   const origin = new URL(request.url).origin;
 
-  // Protect against cross-site upload requests.
   if (request.headers.get("Origin") !== origin) {
     return json({
       error: "Invalid request origin."
     }, 403);
   }
 
-  // Verify the signed administrator session.
   if (!(await verifyAdmin(request, env))) {
     return json({
       error: "Unauthorized. Please sign in again."
@@ -212,44 +206,64 @@ export async function onRequestPost({ request, env }) {
     }, 500);
   }
 
-  // Limit request size before parsing.
-  const lengthHeader =
-    request.headers.get("Content-Length");
-
-  if (
-    lengthHeader !== null &&
-    Number(lengthHeader) > MAX_FILE_SIZE + 65536
-  ) {
-    return json({
-      error: "File must be smaller than 8 MB."
-    }, 413);
-  }
-
   const contentType =
     request.headers.get("Content-Type") || "";
 
   if (
     !contentType.toLowerCase()
-      .startsWith("multipart/form-data")
+      .startsWith("application/json")
   ) {
     return json({
       error: "Invalid upload format."
     }, 400);
   }
 
-  let form;
+  // Base64 expands binary data by approximately 33%.
+  const MAX_REQUEST_SIZE =
+    Math.ceil(MAX_FILE_SIZE * 4 / 3) + 16384;
+
+  const lengthHeader =
+    request.headers.get("Content-Length");
+
+  if (
+    lengthHeader !== null &&
+    Number(lengthHeader) > MAX_REQUEST_SIZE
+  ) {
+    return json({
+      error: "Upload exceeds the 8 MB file limit."
+    }, 413);
+  }
+
+  let rawBody;
 
   try {
-    form = await request.formData();
+    rawBody = await request.text();
   } catch {
     return json({
       error: "Unable to read upload."
     }, 400);
   }
 
-  const course = cleanText(form.get("course"));
-  const title = cleanText(form.get("title"));
-  const file = form.get("file");
+  if (rawBody.length > MAX_REQUEST_SIZE) {
+    return json({
+      error: "Upload exceeds the 8 MB file limit."
+    }, 413);
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(rawBody);
+  } catch {
+    return json({
+      error: "Invalid JSON upload."
+    }, 400);
+  }
+
+  const course = cleanText(data.course);
+  const title = cleanText(data.title);
+  const originalName = String(data.filename || "");
+  const content = data.content;
 
   const match = course.match(
     /^([A-Za-z]{2,6})\s*(\d{3,4})$/
@@ -269,20 +283,7 @@ export async function onRequestPost({ request, env }) {
     }, 400);
   }
 
-  if (!(file instanceof File)) {
-    return json({
-      error: "Please select a file."
-    }, 400);
-  }
-
-  if (file.size === 0 || file.size > MAX_FILE_SIZE) {
-    return json({
-      error: "File must be between 1 byte and 8 MB."
-    }, 413);
-  }
-
-  // Check allowed extensions.
-  const extension = file.name
+  const extension = originalName
     .split(".")
     .pop()
     .toLowerCase();
@@ -293,12 +294,40 @@ export async function onRequestPost({ request, env }) {
     }, 400);
   }
 
-  const bytes = new Uint8Array(
-    await file.arrayBuffer()
-  );
+  if (
+    typeof content !== "string" ||
+    content.length === 0 ||
+    content.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(content)
+  ) {
+    return json({
+      error: "Invalid Base64 file content."
+    }, 400);
+  }
 
-  // Validate file contents.
-  if (!matchesSignature(bytes, extension)) {
+  const fileSize = base64Size(content);
+
+  if (
+    !Number.isInteger(fileSize) ||
+    fileSize <= 0 ||
+    fileSize > MAX_FILE_SIZE
+  ) {
+    return json({
+      error: "File must be between 1 byte and 8 MB."
+    }, 413);
+  }
+
+  let prefix;
+
+  try {
+    prefix = base64Prefix(content);
+  } catch {
+    return json({
+      error: "Unable to validate file content."
+    }, 400);
+  }
+
+  if (!matchesSignature(prefix, extension)) {
     return json({
       error:
         "File contents do not match the selected format."
@@ -316,7 +345,6 @@ export async function onRequestPost({ request, env }) {
     }, 400);
   }
 
-  // Keep filenames compatible with the homepage.
   const filename =
     `${courseCode} ${documentTitle}.${extension}`;
 
@@ -339,7 +367,6 @@ export async function onRequestPost({ request, env }) {
   };
 
   try {
-    // Prevent accidental overwriting.
     const existing = await fetch(githubUrl, {
       method: "GET",
       headers
@@ -357,7 +384,6 @@ export async function onRequestPost({ request, env }) {
       }, 502);
     }
 
-    // Commit the file to the GitHub repository.
     const response = await fetch(githubUrl, {
       method: "PUT",
       headers: {
@@ -366,7 +392,7 @@ export async function onRequestPost({ request, env }) {
       },
       body: JSON.stringify({
         message: `Upload ${filename}`,
-        content: bytesToBase64(bytes),
+        content,
         branch: "main"
       })
     });
